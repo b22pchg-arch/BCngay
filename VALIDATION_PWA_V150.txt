@@ -1,0 +1,32 @@
+SCADA REPORT STUDIO V150 PWA - VALIDATION
+
+Version: V150-PWA-1.0.0
+Date: 2026-07-19
+
+SOURCE
+- Source HTML: SCADA_Report_V150_CombinedWorkbookUpload_Standalone.html
+- Source SHA-256: 98adc5d33efcc433353e3f1aa7047f8f522d60101158293718191ce144180c72
+- PWA index SHA-256: b53e34f9a13a08468b77200253b3333f710c052709e2263b6265df6f1000de9c
+- Business HTML unchanged after removing PWA-only injections: PASS
+
+STATIC CHECKS
+- manifest.webmanifest JSON: PASS
+- version.json JSON: PASS
+- pwa-bootstrap.js node --check: PASS
+- sw.js node --check: PASS
+- Inline business JavaScript blocks checked: 20
+- Inline JavaScript syntax errors: 0
+- Required PWA icons: 192, 512, maskable 512, Apple 180: PASS
+- Service worker core asset list: PASS
+- PowerShell server encoding: UTF-8 BOM
+- PowerShell server body: ASCII-only for Windows PowerShell 5.1 safety
+- ZIP integrity: PASS
+
+HTTP CHECKS
+- index.html served over localhost: PASS
+- manifest MIME: application/manifest+json
+- version.json reachable: PASS
+
+LIMITATION
+- Full Chromium install/offline interaction could not be completed in the packaging environment because local browser navigation is blocked by administrator policy.
+- Final install test should be performed in Edge or Chrome on Windows by running CHAY_PWA.cmd.
