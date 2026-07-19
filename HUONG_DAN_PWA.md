@@ -1,3 +1,7 @@
+# Bản hiện tại: V150-PWA-1.0.1 Map Bridge
+
+Xem `HUONG_DAN_PWA_MAP_BRIDGE.md` để cập nhật GitHub Pages và khôi phục map.
+
 # SCADA Report Studio V150 PWA
 
 Phiên bản: **V150-PWA-1.0.0**  

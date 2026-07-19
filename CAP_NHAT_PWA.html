@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cập nhật SCADA PWA</title>
+<style>body{font-family:Arial,sans-serif;background:#f4f7fb;color:#0f172a;padding:30px}.card{max-width:720px;margin:auto;background:white;border:1px solid #cbd5e1;border-radius:14px;padding:22px;box-shadow:0 12px 35px #0f172a1f}pre{white-space:pre-wrap;background:#f8fafc;padding:12px;border-radius:10px}button{border:0;border-radius:9px;padding:10px 14px;background:#0f766e;color:white;font-weight:700}</style></head>
+<body><div class="card"><h1>Làm mới SCADA Report PWA</h1><p id="status">Đang xóa service worker và cache cũ...</p><pre id="detail"></pre><button id="retry" hidden>Thử lại</button></div>
+<script>
+(async()=>{const status=document.getElementById('status'),detail=document.getElementById('detail'),retry=document.getElementById('retry');async function run(){retry.hidden=true;try{const regs=await navigator.serviceWorker.getRegistrations();await Promise.all(regs.map(r=>r.unregister()));const names=await caches.keys();await Promise.all(names.filter(n=>n.startsWith('scada-report-')).map(n=>caches.delete(n)));detail.textContent='Đã xóa '+regs.length+' đăng ký service worker và '+names.length+' cache.
+Đang mở V150-PWA-1.0.1...';status.textContent='Hoàn tất.';setTimeout(()=>location.replace('./index.html?v=1.0.1&t='+Date.now()),1000)}catch(e){status.textContent='Không làm mới được.';detail.textContent=e.stack||e.message;retry.hidden=false}}retry.onclick=run;run()})()
+</script></body></html>

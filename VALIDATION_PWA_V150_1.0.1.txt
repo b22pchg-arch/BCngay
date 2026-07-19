@@ -1,0 +1,16 @@
+SCADA Report Studio V150 PWA 1.0.1 - Validation
+====================================================
+Source business HTML SHA-256: 98adc5d33efcc433353e3f1aa7047f8f522d60101158293718191ce144180c72
+PWA index based on exact V150 source plus manifest/meta/bootstrap only.
+
+Checks implemented:
+- PWA cache version bumped from 1.0.0 to 1.0.1.
+- Service worker registration uses updateViaCache=none.
+- Force refresh page unregisters workers and clears scada-report-* caches.
+- Generic multi-file input auto-detects nested data.reportTemplateMaps.
+- Direct template config packages are supported.
+- XLSX CFG_REPORT_JSON and CFG_REPORT_TEMPLATE are supported.
+- Best package is chosen by actual mapped-entry count.
+- Map package is stored in both V136 package and V142 registry keys.
+- Map is reapplied after template file loading.
+- Visible PWA map diagnostics are included.

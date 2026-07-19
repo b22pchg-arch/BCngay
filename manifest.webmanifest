@@ -1,11 +1,11 @@
 {
   "id": "./index.html",
-  "name": "SCADA Report Studio V150",
+  "name": "SCADA Report Studio V150 PWA Map Bridge",
   "short_name": "SCADA Report",
-  "description": "Phan tich, tinh toan, tao bao cao Excel va ZIP ngoai tuyen cho SCADA.",
+  "description": "Phan tich, tinh toan, tao bao cao Excel, ZIP va tu khoi phuc map bao cao tu goi cau hinh.",
   "lang": "vi",
   "dir": "ltr",
-  "start_url": "./index.html",
+  "start_url": "./index.html?v=1.0.1",
   "scope": "./",
   "display": "standalone",
   "display_override": [
@@ -45,7 +45,7 @@
     {
       "name": "Mo SCADA Report Studio",
       "short_name": "Mo ung dung",
-      "url": "./index.html",
+      "url": "./index.html?v=1.0.1",
       "icons": [
         {
           "src": "./icons/icon-192.png",
