@@ -7368,5 +7368,625 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 
 </script>
 <!-- SCADA_TABLE_EXPORT_V152_END -->
+<!-- SCADA_MAPPING_ASSISTANT_V153_BEGIN -->
+<script>
+/*
+ * V153.1 - Trợ lý map CHỈ GỢI Ý / READ-ONLY.
+ * Không tự ghi map/route, không thay đổi quy ước tính toán.
+ * Nếu người dùng bỏ qua gợi ý, luồng tính toán cũ tiếp tục nguyên trạng.
+ */
+(function(){
+'use strict';
+if(window.__v153MappingAssistantInstalled)return;
+window.__v153MappingAssistantInstalled=true;
+const VERSION='V153.1';
+const MAX_PREVIEW=120;
+let lastSignature='';
+let lastScan={scada:[],hydro:[]};
+let scanTimer=0;
+
+function $(id){return document.getElementById(id)}
+function txt(v){return v==null?'':String(v).trim()}
+function norm(v){return txt(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')}
+function esc(v){return txt(v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function S(){return window.S&&typeof window.S==='object'?window.S:{}}
+function uniqRows(rows,keyFn){const out=[],seen=new Set(); (rows||[]).forEach(function(r){const k=keyFn(r);if(!k||seen.has(k))return;seen.add(k);out.push(r)});return out}
+function metricOf(v){const n=norm(v);if(/q_mvar|(^|_)q($|_)|_q$/.test(n))return'Q';if(/p_mw|(^|_)p($|_)|_p$/.test(n))return'P';if(/ia|ib|ic|(^|_)i($|_)/.test(n))return'I';if(/ua|ub|uc|kv|(^|_)u($|_)/.test(n))return'U';return''}
+function extractCode(v){const m=txt(v).match(/(?:^|\D)(\d{3})(?:\D|$)/);return m?m[1]:''}
+function extractStation(v){const parts=txt(v).split('/').map(function(x){return x.trim()}).filter(Boolean);return parts.find(function(x){return /^110\s/i.test(x)})||parts.find(function(x){return /\b110\b/.test(x)})||''}
+function stationRows(){const s=S(),mp=new Map();function put(code,name){code=txt(code);name=txt(name)||code;if(!code&&!name)return;const k=norm(code)||norm(name);if(!mp.has(k))mp.set(k,{code:code,name:name})}(s.stations||[]).forEach(function(r){put(r.stationCode,r.stationName||r.station)});(s.mbas||[]).forEach(function(r){put(r.stationCode,r.stationName)});(s.feeders||[]).forEach(function(r){put(r.stationCode,r.stationName)});(s.scadaMap||[]).forEach(function(r){put(r.stationCode,r.station||r.stationName)});(s.routes||[]).forEach(function(r){put('',r.targetTBA)});return[...mp.values()]}
+function stationMatch(name){const n=norm(name);return stationRows().find(function(x){return norm(x.name)===n||norm(x.code)===n||norm(x.name).includes(n)||n.includes(norm(x.name))})||null}
+function feederMatch(station,code){const s=S(),st=norm(station),c=txt(code);return(s.feeders||[]).find(function(r){const sameStation=!st||norm(r.stationName)===st||norm(r.stationCode)===st||norm(r.stationName).includes(st)||st.includes(norm(r.stationName));return sameStation&&extractCode(r.feederId||r.feederName)===c})||null}
+function mbaMatch(station,code){const s=S(),st=norm(station),n=Number(code),short=(n>=131&&n<=139)?('t'+(n-130)):((n>=300||n>=400)?(n%2?'t1':'t2'):'');return(s.mbas||[]).find(function(r){const sameStation=!st||norm(r.stationName)===st||norm(r.stationCode)===st||norm(r.stationName).includes(st)||st.includes(norm(r.stationName));return sameStation&&(!short||norm(r.mbaId).endsWith('_'+short)||norm(r.mbaName).includes(short))})||null}
+
+function scanScada(){const s=S(),mapped=new Set();(s.scadaMap||[]).forEach(function(r){[r.scadaPath,r.scadaPathNormalized,r.scadaCompareKey].forEach(function(v){const k=norm(v);if(k)mapped.add(k)})});const rows=[];uniqRows(s.scadaRaw||[],function(r){return norm(r.scadaPath||r.scadaPathNormalized||r.pointPath)}).forEach(function(r){const path=txt(r.scadaPath||r.scadaPathNormalized||r.pointPath);const key=norm(path);if(!key||mapped.has(key))return;const stationGuess=extractStation(path);const st=stationMatch(stationGuess);const code=extractCode(path);const fd=feederMatch(st?st.name:stationGuess,code);const mba=mbaMatch(st?st.name:stationGuess,code);let kind='Chưa nhận dạng';const n=Number(code);if(n>=171&&n<=179)kind='Lộ đường dây 110kV';else if(n>=131&&n<=139)kind='MBA 110kV';else if(n>=200&&n<=999)kind='Ngăn lộ trung thế';rows.push({path:path,metric:metricOf(path)||txt(r.metric),stationGuess:stationGuess,stationMatch:st,code:code,assetKind:kind,mba:mba,feeder:fd,sourceFile:txt(r.file||r.sourceFile),complete:!!(st&&(fd||mba))})});return rows}
+function hydroRouteKeys(){const keys=new Set();(S().routes||[]).forEach(function(r){[r.ruleId,r.sourcePointId,r.sourcePointName,r.unitName,r.sourceKey,txt(r.plant)+'|'+txt(r.unitName)].forEach(function(v){const k=norm(v);if(k)keys.add(k)})});return keys}
+function bestHydroTarget(plant){const p=norm(plant),routes=S().routes||[];return routes.find(function(r){return p&&norm(r.plant)===p&&txt(r.targetTBA)})||routes.find(function(r){const rp=norm(r.plant);return p&&rp&&(rp.includes(p)||p.includes(rp))&&txt(r.targetTBA)})||null}
+function scanHydro(){const s=S(),routed=hydroRouteKeys(),mp=new Map();(s.hydroRaw||[]).forEach(function(h){const plant=txt(h.plant)||txt(h.sourcePointName).replace(/\s+(P_MW|Q_MVAr).*$/i,'');const unit=txt(h.unitName)||plant;const sourceId=txt(h.sourcePointId||h.ruleId||h.sourceKey);const sourceName=txt(h.sourcePointName);const key=norm(sourceId||sourceName||plant+'|'+unit);if(!key)return;const aliases=[sourceId,sourceName,unit,plant+'|'+unit,key].map(norm).filter(Boolean);if(aliases.some(function(a){return routed.has(a)}))return;const group=norm(sourceId||sourceName||plant+'|'+unit).replace(/_(p_mw|q_mvar|p|q)$/,'');if(!group)return;if(!mp.has(group))mp.set(group,{plant:plant,unit:unit,sourcePointId:sourceId,sourcePointName:sourceName,sourceKey:txt(h.sourceKey),metrics:new Set(),sourceFile:txt(h.file||h.sourceFile)});const o=mp.get(group);o.metrics.add(metricOf(sourceName||sourceId||h.metric));if(!o.sourcePointId&&sourceId)o.sourcePointId=sourceId;if(!o.sourcePointName&&sourceName)o.sourcePointName=sourceName});return[...mp.values()].map(function(h){const target=bestHydroTarget(h.plant);return{plant:h.plant,unit:h.unit,sourcePointId:h.sourcePointId,sourcePointName:h.sourcePointName,sourceKey:h.sourceKey,metrics:[...h.metrics].filter(Boolean).join('/'),sourceFile:h.sourceFile,target:target,complete:!!(target&&target.targetTBA&&(target.targetFeederId||target.targetMBAId))}})}
+
+function ensureCss(){if($('styleV153MapAssistant'))return;const st=document.createElement('style');st.id='styleV153MapAssistant';st.textContent=`
+#mapAssistant153{margin-top:10px;border:2px solid #f59e0b;border-radius:12px;background:#fffbeb;box-shadow:0 8px 24px rgba(146,64,14,.12)}
+#mapAssistant153[open]{padding-bottom:8px}#mapAssistant153>summary{cursor:pointer;padding:10px 12px;list-style:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap}#mapAssistant153>summary::-webkit-details-marker{display:none}
+#mapAssistant153 .ma153Badge{display:inline-flex;align-items:center;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800;background:#fff;border:1px solid #fcd34d;color:#92400e}.ma153Ok{border-color:#86efac!important;background:#f0fdf4!important;color:#166534!important}
+#mapAssistant153 .ma153Body{padding:0 10px 10px}.ma153Actions{display:flex;gap:7px;flex-wrap:wrap;margin:8px 0}.ma153Grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.ma153Box{background:#fff;border:1px solid #fde68a;border-radius:10px;padding:8px;min-width:0}.ma153Box h4{margin:0 0 6px}.ma153Table{max-height:300px;overflow:auto}.ma153Table table{font-size:11px;width:100%;border-collapse:collapse}.ma153Table th,.ma153Table td{padding:5px 6px;border:1px solid #e5e7eb;vertical-align:top}.ma153Table th{position:sticky;top:0;background:#f8fafc;z-index:1}.ma153Path{max-width:430px;word-break:break-word}.ma153Warn{color:#b45309;font-weight:700}.ma153Good{color:#047857;font-weight:700}.ma153Empty{padding:10px;border:1px dashed #cbd5e1;border-radius:8px;color:#64748b}.ma153Note{font-size:12px;color:#475569;margin:5px 0}
+@media(max-width:1150px){.ma153Grid{grid-template-columns:1fr}}
+`;document.head.appendChild(st)}
+function ensureUi(){ensureCss();let panel=$('mapAssistant153');if(panel)return panel;panel=document.createElement('details');panel.id='mapAssistant153';panel.innerHTML='<summary><b>🧭 '+VERSION+' · Gợi ý map dữ liệu mới</b><span id="maScadaCount153" class="ma153Badge">SCADA chưa map: 0</span><span id="maHydroCount153" class="ma153Badge">Thủy điện chưa route: 0</span><span id="maState153" class="ma153Badge ma153Ok">Chưa có dữ liệu mới</span></summary><div class="ma153Body"><div class="ma153Note"><b>Chỉ gợi ý — không tự thêm map/route, không thay đổi phép tính.</b> Nếu bỏ qua, hệ thống vẫn tính như phiên bản trước. Nút Cấu hình chỉ mở và điền trước biểu mẫu V79; chỉ nút xác nhận V79 do người dùng bấm mới ghi cấu hình.</div><div class="ma153Actions"><button type="button" id="maScan153">Dò lại dữ liệu mới</button><button type="button" class="secondary" id="maOpenCatalog153">Mở khu vực cấu hình</button><button type="button" class="secondary" id="maFirstScada153">Cấu hình SCADA đầu tiên</button><button type="button" class="secondary" id="maFirstHydro153">Cấu hình thủy điện đầu tiên</button></div><div class="ma153Grid"><div class="ma153Box"><h4>SCADA thô mới chưa có map</h4><div id="maScadaTable153" class="ma153Table"></div></div><div class="ma153Box"><h4>Nguồn/tổ máy thủy điện mới chưa có route</h4><div id="maHydroTable153" class="ma153Table"></div></div></div></div>';
+const anchor=$('zip151Panel')||$('v99ClassifySummary')||$('fileInput');if(anchor)anchor.insertAdjacentElement('afterend',panel);else(document.querySelector('aside')||document.body).prepend(panel);
+$('maScan153').onclick=function(){scanAndRender153(true)};$('maOpenCatalog153').onclick=openCatalog153;$('maFirstScada153').onclick=function(){openScada153(0)};$('maFirstHydro153').onclick=function(){openHydro153(0)};
+panel.addEventListener('click',function(ev){const b=ev.target.closest&&ev.target.closest('button[data-ma-kind]');if(!b)return;const i=Number(b.dataset.maIndex)||0;if(b.dataset.maKind==='scada')openScada153(i);else openHydro153(i)});return panel}
+function statusMessage(scada,hydro){if(!scada.length&&!hydro.length)return'Các điểm hiện có đã có map/route';return'Có gợi ý — chưa ghi cấu hình'}
+function renderTables(){const sc=$('maScadaTable153'),hy=$('maHydroTable153');if(sc){if(!lastScan.scada.length)sc.innerHTML='<div class="ma153Empty">Không có điểm SCADA thô mới chưa map.</div>';else sc.innerHTML='<table><thead><tr><th>Thao tác</th><th>P/Q</th><th>Path SCADA</th><th>TBA / thiết bị gợi ý</th><th>Đánh giá</th></tr></thead><tbody>'+lastScan.scada.slice(0,MAX_PREVIEW).map(function(r,i){const target=[r.stationMatch&&(r.stationMatch.name||r.stationMatch.code),r.mba&&(r.mba.mbaName||r.mba.mbaId),r.feeder&&(r.feeder.feederName||r.feeder.feederId)].filter(Boolean).join(' → ')||[r.stationGuess,r.code].filter(Boolean).join(' / ')||'Chưa nhận dạng';return'<tr><td><button type="button" class="mini secondary" data-ma-kind="scada" data-ma-index="'+i+'">Cấu hình</button></td><td>'+esc(r.metric||'-')+'</td><td class="ma153Path">'+esc(r.path)+'</td><td>'+esc(target)+'</td><td class="'+(r.complete?'ma153Good':'ma153Warn')+'">'+(r.complete?'Có topo để chọn':'Cần kiểm tra/tạo topo')+'</td></tr>'}).join('')+'</tbody></table>'+(lastScan.scada.length>MAX_PREVIEW?'<div class="ma153Note">Còn '+(lastScan.scada.length-MAX_PREVIEW)+' điểm; toàn bộ vẫn có trong danh sách cấu hình.</div>':'')}
+if(hy){if(!lastScan.hydro.length)hy.innerHTML='<div class="ma153Empty">Không có nguồn thủy điện mới chưa route.</div>';else hy.innerHTML='<table><thead><tr><th>Thao tác</th><th>Nhà máy / tổ máy</th><th>Điểm nguồn</th><th>Đích gợi ý</th><th>Đánh giá</th></tr></thead><tbody>'+lastScan.hydro.slice(0,MAX_PREVIEW).map(function(r,i){const t=r.target;const target=t?[t.targetTBA,t.targetMBAName||t.targetMBAId,t.targetFeederName||t.targetFeederId].filter(Boolean).join(' → '):'Chưa có route mẫu cùng nhà máy';return'<tr><td><button type="button" class="mini secondary" data-ma-kind="hydro" data-ma-index="'+i+'">Cấu hình</button></td><td>'+esc([r.plant,r.unit].filter(Boolean).join(' / '))+'</td><td class="ma153Path">'+esc(r.sourcePointName||r.sourcePointId||r.sourceKey)+'</td><td>'+esc(target)+'</td><td class="'+(r.complete?'ma153Good':'ma153Warn')+'">'+(r.complete?'Có thể dùng route mẫu':'Cần chọn TBA/MBA/lộ')+'</td></tr>'}).join('')+'</tbody></table>'+(lastScan.hydro.length>MAX_PREVIEW?'<div class="ma153Note">Còn '+(lastScan.hydro.length-MAX_PREVIEW)+' nguồn; toàn bộ vẫn được đưa vào biểu mẫu cấu hình.</div>':'')}
+}
+function render(autoOpen){const panel=ensureUi(),sc=$('maScadaCount153'),hy=$('maHydroCount153'),state=$('maState153');if(sc)sc.textContent='SCADA chưa map: '+lastScan.scada.length;if(hy)hy.textContent='Thủy điện chưa route: '+lastScan.hydro.length;if(state){state.textContent=statusMessage(lastScan.scada,lastScan.hydro);state.className='ma153Badge '+((!lastScan.scada.length&&!lastScan.hydro.length)?'ma153Ok':'')}renderTables();if(autoOpen&&(lastScan.scada.length||lastScan.hydro.length))panel.open=true}
+function signature(scada,hydro){return scada.length+'|'+hydro.length+'|'+scada.slice(0,20).map(function(r){return norm(r.path)}).join(',')+'|'+hydro.slice(0,20).map(function(r){return norm(r.sourcePointId||r.sourcePointName||r.unit)}).join(',')}
+function scanAndRender153(autoOpen){try{const scada=scanScada(),hydro=scanHydro(),sig=signature(scada,hydro),changed=sig!==lastSignature;lastScan={scada:scada,hydro:hydro};lastSignature=sig;render(!!autoOpen&&changed);if((scada.length||hydro.length)&&changed){const st=$('status');if(st){st.textContent+='\n'+VERSION+': phát hiện '+scada.length+' điểm SCADA chưa map và '+hydro.length+' nguồn thủy điện chưa route. Đây chỉ là gợi ý; phép tính và cấu hình chưa thay đổi.';st.scrollTop=st.scrollHeight}}return lastScan}catch(e){console.error(VERSION+' mapping scan failed',e);return lastScan}}
+window.scanMappingNeeds153=scanAndRender153;
+function scheduleScan(autoOpen){clearTimeout(scanTimer);scanTimer=setTimeout(function(){scanAndRender153(autoOpen);setTimeout(function(){scanAndRender153(autoOpen)},900);setTimeout(function(){scanAndRender153(autoOpen)},2600)},180)}
+function showCatalog(){if(typeof window.showTab==='function')window.showTab('catalog79');const tab=$('tab-catalog79');if(tab)tab.classList.remove('hidden');try{if(typeof window.refreshLinked79==='function')window.refreshLinked79()}catch(e){}return tab}
+function openCatalog153(){const tab=showCatalog();setTimeout(function(){if(tab)tab.scrollIntoView({behavior:'smooth',block:'start'})},80)}
+window.openCatalog153=openCatalog153;
+function ensureOption(select,value,label){if(!select||!value)return;if(![...select.options].some(function(o){return o.value===value})){const o=document.createElement('option');o.value=value;o.textContent=label||value;select.appendChild(o)}select.value=value}
+function openScada153(index){const r=lastScan.scada[index];if(!r)return;showCatalog();setTimeout(function(){try{if(!r.stationMatch&&r.stationGuess){const name=$('newTbaName79');if(name)name.value=r.stationGuess;const code=$('newTbaCode79');if(code&&!code.value)code.value='';if(typeof window.fillTbaCode79==='function')window.fillTbaCode79();const s=$('newTbaStatus79');if(s)s.textContent='Gợi ý từ SCADA mới: hãy tự kiểm tra mã TBA/MBA/ngăn lộ. Chưa có cấu hình nào được ghi.';const card=name&&name.closest('.catalogCard79');if(card)card.scrollIntoView({behavior:'smooth',block:'start'});return}
+if(typeof window.refreshLinked79==='function')window.refreshLinked79();const sel=$('mapRawPoint79');ensureOption(sel,r.path,(r.metric||'')+' | '+r.path);if(typeof window.autoSuggestMapFromPath79==='function')window.autoSuggestMapFromPath79();const status=$('mapPreview79');if(status&&!r.complete)status.textContent+='\n'+VERSION+': chưa khớp đầy đủ thiết bị; hãy chọn lại TBA/MBA/ngăn lộ trong các danh sách liên kết.';const card=sel&&sel.closest('.catalogCard79');if(card)card.scrollIntoView({behavior:'smooth',block:'start'})}catch(e){console.error(e);alert('Không mở được biểu mẫu map SCADA: '+e.message)}},140)}
+window.openScada153=openScada153;
+function setSelectByText(select,value){if(!select||!value)return;const n=norm(value);const opt=[...select.options].find(function(o){return norm(o.value)===n||norm(o.textContent).includes(n)||n.includes(norm(o.textContent))});if(opt)select.value=opt.value}
+function openHydro153(index){const r=lastScan.hydro[index];if(!r)return;showCatalog();setTimeout(function(){try{if(typeof window.refreshLinked79==='function')window.refreshLinked79();const plant=$('newHydroPlant79'),units=$('newHydroUnits79');if(plant)plant.value=r.plant;if(units)units.value=[r.unit,r.sourcePointName||r.sourcePointId,r.sourcePointId].filter(Boolean).join(' | ');const target=r.target;if(target){const tba=$('hydroTargetTba79');setSelectByText(tba,target.targetTBA);if(typeof window.refreshLinked79==='function')window.refreshLinked79();setSelectByText($('hydroTargetMba79'),target.targetMBAId||target.targetMBAName);if(typeof window.refreshLinked79==='function')window.refreshLinked79();setSelectByText($('hydroTargetFeeder79'),target.targetFeederId||target.targetFeederName);if($('newHydroShare79'))$('newHydroShare79').value=target.sharePct==null?100:target.sharePct;if($('newHydroSignP79'))$('newHydroSignP79').value=String(target.signP==null?1:target.signP);if($('newHydroSignQ79'))$('newHydroSignQ79').value=String(target.signQ==null?1:target.signQ)}else if(typeof window.suggestHydroFromRaw79==='function')window.suggestHydroFromRaw79();if(typeof window.previewNewHydro79==='function')window.previewNewHydro79();const st=$('newHydroStatus79');if(st)st.textContent+='\n'+VERSION+': đây là nguồn mới chưa route. Kiểm tra TBA/MBA/ngăn lộ nhận phát trước khi bấm “Thêm route thủy điện”.';const card=plant&&plant.closest('.catalogCard79');if(card)card.scrollIntoView({behavior:'smooth',block:'start'})}catch(e){console.error(e);alert('Không mở được biểu mẫu map thủy điện: '+e.message)}},160)}
+window.openHydro153=openHydro153;
+
+function wrapAsync(name){const old=window[name];if(typeof old!=='function'||old.__v153MapWrapped)return;const fn=async function(){const result=await old.apply(this,arguments);scheduleScan(true);return result};fn.__v153MapWrapped=true;fn.__v153Original=old;window[name]=fn}
+function wrapSync(name){const old=window[name];if(typeof old!=='function'||old.__v153MapWrapped)return;const fn=function(){const result=old.apply(this,arguments);scheduleScan(false);return result};fn.__v153MapWrapped=true;fn.__v153Original=old;window[name]=fn}
+function installHooks(){ensureUi();wrapAsync('loadFiles');wrapAsync('loadTypedFiles');['addLinkedMapRow79','addNewHydro79','applySelectedCandidates79','loadConfigPack81'].forEach(wrapSync);const reset=window.resetAll;if(typeof reset==='function'&&!reset.__v153MapWrapped){const fn=function(){const r=reset.apply(this,arguments);lastSignature='';lastScan={scada:[],hydro:[]};render(false);return r};fn.__v153MapWrapped=true;window.resetAll=fn}}
+function arm(){installHooks();scanAndRender153(false)}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(arm,80);setTimeout(installHooks,900);setTimeout(installHooks,3800);setTimeout(installHooks,6800)},{once:true});else{setTimeout(arm,80);setTimeout(installHooks,900);setTimeout(installHooks,3800);setTimeout(installHooks,6800)}
+})();
+</script>
+<!-- SCADA_MAPPING_ASSISTANT_V153_END -->
+
+<!-- SCADA_EXISTING_HYDRO_ROUTE_MANAGER_V154_BEGIN -->
+<script>
+/*
+ * V154 - Đọc và hiệu chỉnh route của nhà máy thủy điện đã có.
+ *
+ * Nguyên tắc:
+ * - Không thay đổi lõi tính toán, routeActiveAt67 hoặc quy tắc P/Q.
+ * - Không tự thêm route.
+ * - "Nạp làm route mới" chỉ điền biểu mẫu V79; người dùng vẫn phải bấm
+ *   "Thêm route thủy điện".
+ * - "Cập nhật thời gian" chỉ sửa timeFrom/timeTo của đúng dòng đã chọn
+ *   sau khi người dùng xác nhận.
+ */
+(function(){
+'use strict';
+if(window.__hydroRouteManager154Installed)return;
+window.__hydroRouteManager154Installed=true;
+
+var selectedRouteIndex154=-1;
+var lastTimeEdit154=null;
+var lastRouteCount154=-1;
+var refreshTimer154=0;
+
+function el154(id){return document.getElementById(id)}
+function text154(v){return v==null?'':String(v).trim()}
+function norm154(v){
+  return text154(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase()
+    .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+}
+function esc154(v){
+  return text154(v).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function state154(){
+  return window.S && typeof window.S==='object' ? window.S : null;
+}
+function routes154(){
+  var s=state154();
+  return s && Array.isArray(s.routes) ? s.routes : [];
+}
+function isUsed154(r){
+  var v=r && r.use;
+  if(v===false || v===0)return false;
+  var n=norm154(v);
+  return !(n==='no'||n==='false'||n==='0'||n==='khong');
+}
+function routePlant154(r){
+  return text154(r && (r.plant || r.sourcePlant || r.sourcePointName));
+}
+function routeSourceLabel154(r){
+  return text154(r.sourcePointName || r.sourcePointId || r.ruleId || r.unitName || r.plant);
+}
+function routeTargetTba154(r){
+  return text154(r && r.targetTBA);
+}
+function routeTargetMba154(r){
+  return text154(r && (r.targetMBAName || r.targetMBAId));
+}
+function routeTargetFeeder154(r){
+  return text154(r && (r.targetFeederName || r.targetFeederId));
+}
+function routeTargetLabel154(r){
+  return [routeTargetTba154(r),routeTargetMba154(r),routeTargetFeeder154(r)]
+    .map(text154).filter(Boolean).join(' → ');
+}
+function sourceAliases154(r){
+  var values=[
+    r.ruleId,
+    r.sourcePointId,
+    r.sourcePointName,
+    [r.plant,r.unitName].filter(Boolean).join('|'),
+    r.unitName
+  ];
+  var out=[];
+  values.forEach(function(v){
+    var n=norm154(v);
+    if(n && out.indexOf(n)<0)out.push(n);
+  });
+  return out;
+}
+function sameSource154(a,b){
+  var aa=sourceAliases154(a), bb=sourceAliases154(b);
+  return aa.some(function(x){return bb.indexOf(x)>=0});
+}
+function parseClock154(v,allow24){
+  var m=text154(v).match(/^(\d{1,2}):(\d{2})$/);
+  if(!m)return null;
+  var h=Number(m[1]), mi=Number(m[2]);
+  if(mi<0||mi>59)return null;
+  if(h===24 && mi===0 && allow24)return 1440;
+  if(h<0||h>23)return null;
+  return h*60+mi;
+}
+function normalizeClock154(v,allow24){
+  var n=parseClock154(v,allow24);
+  if(n==null)return '';
+  if(n===1440)return '24:00';
+  return String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0');
+}
+function timeSegments154(from,to){
+  var f=parseClock154(from,false), t=parseClock154(to,true);
+  if(f==null||t==null||f===t)return [];
+  if(t>f)return [[f,t]];
+  return [[f,1440],[0,t]];
+}
+function timeOverlap154(aFrom,aTo,bFrom,bTo){
+  var aa=timeSegments154(aFrom,aTo), bb=timeSegments154(bFrom,bTo);
+  return aa.some(function(a){
+    return bb.some(function(b){return Math.max(a[0],b[0])<Math.min(a[1],b[1])});
+  });
+}
+function overlapRows154(candidate,ignoreIndex){
+  var rows=routes154(), out=[];
+  if(!isUsed154(candidate))return out;
+  rows.forEach(function(r,i){
+    if(i===ignoreIndex || !isUsed154(r) || !sameSource154(candidate,r))return;
+    if(timeOverlap154(candidate.timeFrom||'00:00',candidate.timeTo||'24:00',
+                      r.timeFrom||'00:00',r.timeTo||'24:00')){
+      out.push({index:i,route:r});
+    }
+  });
+  return out;
+}
+function routePlants154(){
+  var mp=new Map();
+  routes154().forEach(function(r){
+    var p=routePlant154(r);
+    if(p&&!mp.has(norm154(p)))mp.set(norm154(p),p);
+  });
+  return Array.from(mp.values()).sort(function(a,b){return a.localeCompare(b,'vi')});
+}
+function routeCard154(){
+  var heads=Array.from(document.querySelectorAll('#tab-catalog79 .catalogCard79 h3'));
+  var head=heads.find(function(h){return /3\)\s*Thêm thủy điện mới\s*\/\s*route mới/i.test(h.textContent||'')});
+  return head ? head.closest('.catalogCard79') : null;
+}
+function ensureCss154(){
+  if(el154('styleHydroRoute154'))return;
+  var st=document.createElement('style');
+  st.id='styleHydroRoute154';
+  st.textContent=`
+  .hydroRouteMgr154{margin-top:12px;border-top:2px solid #93c5fd;padding-top:10px}
+  .hydroRouteMgr154 h4{margin:0 0 7px;color:#1e3a8a}
+  .hydroRouteHint154{padding:8px 10px;border:1px solid #bfdbfe;background:#eff6ff;color:#1e3a8a;border-radius:9px;font-size:12px;margin:7px 0}
+  .hydroRouteGrid154{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:8px}
+  .hydroRouteGrid154 label{font-size:11px;color:#475569}
+  .hydroRouteGrid154 input,.hydroRouteGrid154 select{width:100%}
+  .hydroRouteButtons154{display:flex;gap:7px;flex-wrap:wrap;margin:8px 0}
+  .hydroRouteTable154{max-height:390px;overflow:auto;border:1px solid #dbeafe;border-radius:9px}
+  .hydroRouteTable154 table{border-collapse:collapse;width:100%;font-size:11px}
+  .hydroRouteTable154 th,.hydroRouteTable154 td{border:1px solid #e2e8f0;padding:5px 6px;vertical-align:top}
+  .hydroRouteTable154 th{position:sticky;top:0;background:#eff6ff;z-index:2}
+  .hydroRouteTable154 tr.selected154 td{background:#fef3c7}
+  .hydroRouteTable154 .warn154{color:#b45309;font-weight:700}
+  .hydroRouteTable154 .ok154{color:#047857;font-weight:700}
+  .hydroRouteTable154 .targetCell154{white-space:nowrap}
+  .hydroRouteEdit154{margin-top:9px;padding:9px;border:1px solid #cbd5e1;border-radius:9px;background:#f8fafc}
+  .hydroRouteStatus154{white-space:pre-wrap;max-height:180px;overflow:auto;font-size:12px;padding:8px;border-radius:8px;background:#0f172a;color:#e2e8f0}
+  @media(max-width:1100px){.hydroRouteGrid154{grid-template-columns:1fr 1fr}}
+  @media(max-width:680px){.hydroRouteGrid154{grid-template-columns:1fr}}
+  `;
+  document.head.appendChild(st);
+}
+function ensureUi154(){
+  ensureCss154();
+  var old=el154('hydroRouteManager154');
+  if(old)return old;
+  var card=routeCard154();
+  if(!card)return null;
+  var box=document.createElement('div');
+  box.id='hydroRouteManager154';
+  box.className='hydroRouteMgr154';
+  box.innerHTML=
+    '<h4>V154.2 · Đọc route nhà máy hiện có, bật/tắt và hiệu chỉnh kết dây theo giờ</h4>'+
+    '<div class="hydroRouteHint154"><b>Không tự sửa cấu hình.</b> Chọn nhà máy để đọc các route đã có. '+
+    'Nút “Nạp làm route mới” chỉ sao chép dòng vào biểu mẫu phía trên. '+
+    'Nút “Cập nhật thời gian” chỉ sửa <code>timeFrom/timeTo</code> của dòng được chọn sau xác nhận. '+
+    'Nếu các khoảng giờ cùng nguồn chồng nhau, hệ thống cảnh báo vì dữ liệu có thể được tính đồng thời vào nhiều nhánh.</div>'+
+    '<div class="hydroRouteGrid154">'+
+      '<div><label>Nhà máy đã có route</label><select id="existingHydroPlant154"></select></div>'+
+      '<div><label>Lọc tổ máy/điểm nguồn/đích</label><input id="existingHydroFilter154" placeholder="Nhập từ khóa"></div>'+
+      '<div><label>Số route nhà máy</label><input id="existingHydroCount154" readonly></div>'+
+      '<div><label>Trạng thái lựa chọn</label><input id="existingHydroSelected154" readonly value="Chưa chọn dòng"></div>'+
+    '</div>'+
+    '<div class="hydroRouteButtons154">'+
+      '<button type="button" class="secondary" id="readExistingRoutes154">Đọc route nhà máy</button>'+
+      '<button type="button" class="secondary" id="refreshExistingRoutes154">Làm mới danh sách</button>'+
+      '<button type="button" id="copyRouteAsNew154">Nạp dòng chọn làm route mới</button>'+
+      '<button type="button" class="secondary" id="checkDraftOverlap154">Kiểm tra route đang nhập</button>'+
+    '</div>'+
+    '<div id="existingHydroRoutesTable154" class="hydroRouteTable154"></div>'+
+    '<div class="hydroRouteEdit154">'+
+      '<b>Hiệu chỉnh thời gian dòng route đã chọn</b>'+
+      '<div class="hydroRouteGrid154" style="margin-top:7px">'+
+        '<div><label>Trạng thái dùng</label><select id="editRouteUse154"><option value="1">Dùng</option><option value="0">Không dùng</option></select></div>'+
+        '<div><label>Từ giờ mới</label><input id="editRouteFrom154" placeholder="00:00"></div>'+
+        '<div><label>Đến giờ mới</label><input id="editRouteTo154" placeholder="24:00"></div>'+
+        '<div><label>Route/nguồn</label><input id="editRouteSource154" readonly></div>'+
+        '<div><label>TBA nhận phát</label><input id="editRouteTargetTba154" readonly></div>'+
+        '<div><label>MBA nhận phát</label><input id="editRouteTargetMba154" readonly></div>'+
+        '<div><label>Ngăn lộ nhận phát</label><input id="editRouteTargetFeeder154" readonly></div>'+
+      '</div>'+
+      '<div class="hydroRouteButtons154">'+
+        '<button type="button" class="secondary" id="previewRouteTime154">Xem trước thay đổi</button>'+
+        '<button type="button" id="saveRouteTime154">Cập nhật trạng thái / thời gian</button>'+
+        '<button type="button" class="secondary" id="undoRouteTime154">Hoàn tác lần sửa gần nhất</button>'+
+      '</div>'+
+      '<div id="hydroRouteStatus154" class="hydroRouteStatus154">Chưa chọn dòng route.</div>'+
+    '</div>';
+  var status=el154('newHydroStatus79');
+  if(status)status.insertAdjacentElement('afterend',box); else card.appendChild(box);
+
+  el154('existingHydroPlant154').onchange=function(){selectedRouteIndex154=-1;renderRoutes154()};
+  el154('existingHydroFilter154').oninput=function(){clearTimeout(refreshTimer154);refreshTimer154=setTimeout(renderRoutes154,250)};
+  el154('readExistingRoutes154').onclick=renderRoutes154;
+  el154('refreshExistingRoutes154').onclick=refreshManager154;
+  el154('copyRouteAsNew154').onclick=function(){copySelectedAsNew154()};
+  el154('checkDraftOverlap154').onclick=checkDraftOverlap154;
+  el154('previewRouteTime154').onclick=previewTimeEdit154;
+  el154('saveRouteTime154').onclick=saveTimeEdit154;
+  el154('undoRouteTime154').onclick=undoTimeEdit154;
+  box.addEventListener('click',function(ev){
+    var b=ev.target.closest&&ev.target.closest('button[data-route-action154]');
+    if(!b)return;
+    var idx=Number(b.dataset.routeIndex154);
+    if(!Number.isInteger(idx))return;
+    if(b.dataset.routeAction154==='select')selectRoute154(idx);
+    if(b.dataset.routeAction154==='copy'){selectRoute154(idx);copySelectedAsNew154()}
+  });
+  return box;
+}
+function fillPlants154(){
+  var sel=el154('existingHydroPlant154');
+  if(!sel)return;
+  var old=sel.value;
+  var current=text154(el154('newHydroPlant79')&&el154('newHydroPlant79').value);
+  var plants=routePlants154();
+  sel.innerHTML='<option value="">-- tất cả nhà máy --</option>'+
+    plants.map(function(p){return '<option value="'+esc154(p)+'">'+esc154(p)+'</option>'}).join('');
+  if(plants.some(function(p){return p===old}))sel.value=old;
+  else if(current){
+    var found=plants.find(function(p){return norm154(p)===norm154(current)});
+    if(found)sel.value=found;
+  }
+}
+function filteredRouteRows154(){
+  var plant=text154(el154('existingHydroPlant154')&&el154('existingHydroPlant154').value);
+  var q=norm154(el154('existingHydroFilter154')&&el154('existingHydroFilter154').value);
+  return routes154().map(function(r,i){return {route:r,index:i}}).filter(function(x){
+    if(plant && norm154(routePlant154(x.route))!==norm154(plant))return false;
+    if(!q)return true;
+    return norm154([
+      x.route.ruleId,x.route.sourcePointId,x.route.sourcePointName,x.route.unitName,
+      x.route.targetTBA,x.route.targetMBAName,x.route.targetMBAId,
+      x.route.targetFeederName,x.route.targetFeederId,x.route.timeFrom,x.route.timeTo
+    ].join('|')).indexOf(q)>=0;
+  });
+}
+function rowOverlapCount154(r,idx){
+  return overlapRows154(r,idx).length;
+}
+function renderRoutes154(){
+  var box=ensureUi154();
+  if(!box)return;
+  fillPlants154();
+  var rows=filteredRouteRows154();
+  var cnt=el154('existingHydroCount154');
+  if(cnt)cnt.value=String(rows.length)+' / '+String(routes154().length);
+  var target=el154('existingHydroRoutesTable154');
+  if(!target)return;
+  if(!rows.length){
+    target.innerHTML='<div style="padding:10px;color:#64748b">Không có route phù hợp lựa chọn.</div>';
+    return;
+  }
+  target.innerHTML='<table><thead><tr>'+
+    '<th>Thao tác</th><th>Dùng</th><th>Nhà máy / tổ máy</th><th>Điểm nguồn</th>'+
+    '<th>TBA nhận phát</th><th>MBA nhận phát</th><th>Ngăn lộ nhận phát</th>'+
+    '<th>Từ giờ</th><th>Đến giờ</th><th>Tỷ lệ</th><th>Kiểm tra thời gian</th>'+
+    '</tr></thead><tbody>'+
+    rows.map(function(x){
+      var r=x.route, overlaps=rowOverlapCount154(r,x.index);
+      return '<tr class="'+(x.index===selectedRouteIndex154?'selected154':'')+'">'+
+        '<td><button type="button" class="mini secondary" data-route-action154="select" data-route-index154="'+x.index+'">Chọn sửa giờ</button> '+
+        '<button type="button" class="mini" data-route-action154="copy" data-route-index154="'+x.index+'">Nạp làm route mới</button></td>'+
+        '<td>'+(isUsed154(r)?'Có':'Không')+'</td>'+
+        '<td>'+esc154([routePlant154(r),r.unitName].filter(Boolean).join(' / '))+'</td>'+
+        '<td>'+esc154(routeSourceLabel154(r))+'</td>'+
+        '<td class="targetCell154">'+esc154(routeTargetTba154(r))+'</td>'+
+        '<td class="targetCell154">'+esc154(routeTargetMba154(r))+'</td>'+
+        '<td class="targetCell154">'+esc154(routeTargetFeeder154(r))+'</td>'+
+        '<td>'+esc154(r.timeFrom||'00:00')+'</td>'+
+        '<td>'+esc154(r.timeTo||'24:00')+'</td>'+
+        '<td>'+esc154((r.sharePct==null?100:r.sharePct)+'%')+'</td>'+
+        '<td class="'+(overlaps?'warn154':'ok154')+'">'+(overlaps?('Chồng '+overlaps+' route cùng nguồn'):'Không chồng route cùng nguồn')+'</td>'+
+      '</tr>';
+    }).join('')+'</tbody></table>';
+}
+function selectRoute154(idx){
+  var r=routes154()[idx];
+  if(!r)return;
+  selectedRouteIndex154=idx;
+  if(el154('editRouteUse154'))el154('editRouteUse154').value=isUsed154(r)?'1':'0';
+  if(el154('editRouteFrom154'))el154('editRouteFrom154').value=text154(r.timeFrom)||'00:00';
+  if(el154('editRouteTo154'))el154('editRouteTo154').value=text154(r.timeTo)||'24:00';
+  if(el154('editRouteSource154'))el154('editRouteSource154').value=routeSourceLabel154(r);
+  if(el154('editRouteTargetTba154'))el154('editRouteTargetTba154').value=routeTargetTba154(r);
+  if(el154('editRouteTargetMba154'))el154('editRouteTargetMba154').value=routeTargetMba154(r);
+  if(el154('editRouteTargetFeeder154'))el154('editRouteTargetFeeder154').value=routeTargetFeeder154(r);
+  if(el154('existingHydroSelected154'))el154('existingHydroSelected154').value='Dòng '+(idx+1)+' / '+text154(r.ruleId);
+  setStatus154('Đã chọn dòng '+(idx+1)+'.\nTrạng thái hiện tại: '+(isUsed154(r)?'Dùng':'Không dùng')+
+    '\nThời gian hiện tại: '+(r.timeFrom||'00:00')+' - '+(r.timeTo||'24:00')+
+    '\nChưa có thay đổi nào được ghi.');
+  renderRoutes154();
+}
+function setStatus154(msg){
+  var s=el154('hydroRouteStatus154');
+  if(s)s.textContent=msg;
+}
+function previewTimeEdit154(){
+  var r=routes154()[selectedRouteIndex154];
+  if(!r){setStatus154('Chưa chọn dòng route.');return null}
+  var use=!!(el154('editRouteUse154') && el154('editRouteUse154').value==='1');
+  var from=normalizeClock154(el154('editRouteFrom154')&&el154('editRouteFrom154').value,false);
+  var to=normalizeClock154(el154('editRouteTo154')&&el154('editRouteTo154').value,true);
+  if(!from||!to){
+    setStatus154('Thời gian không hợp lệ. Dùng HH:mm; “24:00” chỉ được dùng tại Đến giờ.');
+    return null;
+  }
+  if(use && parseClock154(from,false)===parseClock154(to,true)){
+    setStatus154('Route đang ở trạng thái Dùng nên Từ giờ và Đến giờ không được bằng nhau.');
+    return null;
+  }
+  var candidate=Object.assign({},r,{use:use,timeFrom:from,timeTo:to});
+  var overlaps=overlapRows154(candidate,selectedRouteIndex154);
+  var report='Dòng '+(selectedRouteIndex154+1)+': '+routeSourceLabel154(r)+'\n'+
+    'TBA: '+routeTargetTba154(r)+'\n'+
+    'MBA: '+routeTargetMba154(r)+'\n'+
+    'Ngăn lộ: '+routeTargetFeeder154(r)+'\n'+
+    'Trạng thái cũ: '+(isUsed154(r)?'Dùng':'Không dùng')+'\n'+
+    'Trạng thái mới: '+(use?'Dùng':'Không dùng')+'\n'+
+    'Thời gian cũ: '+(r.timeFrom||'00:00')+' - '+(r.timeTo||'24:00')+'\n'+
+    'Thời gian mới: '+from+' - '+to+'\n';
+  if(!use){
+    report+='Route mới ở trạng thái Không dùng nên không tham gia phép tính và không kiểm tra chồng thời gian.';
+  }else if(overlaps.length){
+    report+='CẢNH BÁO: khoảng mới chồng '+overlaps.length+' route đang Dùng cùng nguồn:\n'+
+      overlaps.map(function(x){
+        return '- Dòng '+(x.index+1)+': '+routeTargetLabel154(x.route)+' @ '+
+          (x.route.timeFrom||'00:00')+'-'+(x.route.timeTo||'24:00');
+      }).join('\n');
+  }else{
+    report+='Không phát hiện chồng thời gian với route đang Dùng khác cùng nguồn.';
+  }
+  setStatus154(report);
+  return {route:r,use:use,from:from,to:to,overlaps:overlaps,report:report};
+}
+function saveTimeEdit154(){
+  var p=previewTimeEdit154();
+  if(!p)return;
+  var question='Cập nhật trạng thái và thời gian của dòng '+(selectedRouteIndex154+1)+'?\n\n'+
+    'Trạng thái cũ: '+(isUsed154(p.route)?'Dùng':'Không dùng')+
+    '\nTrạng thái mới: '+(p.use?'Dùng':'Không dùng')+
+    '\nThời gian cũ: '+(p.route.timeFrom||'00:00')+' - '+(p.route.timeTo||'24:00')+
+    '\nThời gian mới: '+p.from+' - '+p.to;
+  if(p.use && p.overlaps.length){
+    question+='\n\nCảnh báo: khoảng giờ mới chồng '+p.overlaps.length+
+      ' route cùng nguồn. Trường hợp này có thể tính nguồn vào nhiều nhánh đồng thời.';
+  }
+  if(!confirm(question))return;
+  lastTimeEdit154={
+    index:selectedRouteIndex154,
+    beforeUse:isUsed154(p.route),
+    beforeFrom:text154(p.route.timeFrom)||'00:00',
+    beforeTo:text154(p.route.timeTo)||'24:00',
+    afterUse:p.use,
+    afterFrom:p.from,
+    afterTo:p.to
+  };
+  p.route.use=p.use;
+  p.route.timeFrom=p.from;
+  p.route.timeTo=p.to;
+  setStatus154('Đã cập nhật dòng '+(selectedRouteIndex154+1)+
+    ': '+(p.use?'Dùng':'Không dùng')+', '+p.from+' - '+p.to+
+    '.\nKhông thay đổi nguồn, TBA, MBA, ngăn lộ, tỷ lệ hoặc dấu P/Q; không tự chạy tính toán.');
+  notifyRouteChanged154();
+}
+function undoTimeEdit154(){
+  if(!lastTimeEdit154){setStatus154('Chưa có lần sửa thời gian nào để hoàn tác.');return}
+  var r=routes154()[lastTimeEdit154.index];
+  if(!r){setStatus154('Không còn tìm thấy dòng route đã sửa.');return}
+  if(!confirm('Hoàn tác dòng '+(lastTimeEdit154.index+1)+' về trạng thái '+
+              (lastTimeEdit154.beforeUse?'Dùng':'Không dùng')+', '+
+              lastTimeEdit154.beforeFrom+' - '+lastTimeEdit154.beforeTo+'?'))return;
+  r.use=lastTimeEdit154.beforeUse;
+  r.timeFrom=lastTimeEdit154.beforeFrom;
+  r.timeTo=lastTimeEdit154.beforeTo;
+  selectedRouteIndex154=lastTimeEdit154.index;
+  setStatus154('Đã hoàn tác về trạng thái '+(isUsed154(r)?'Dùng':'Không dùng')+
+    ', '+r.timeFrom+' - '+r.timeTo+
+    '.\nKhông thay đổi nguồn hoặc đích nhận phát.');
+  lastTimeEdit154=null;
+  notifyRouteChanged154();
+  selectRoute154(selectedRouteIndex154);
+}
+function setSelectApprox154(select,value){
+  if(!select||!value)return false;
+  var n=norm154(value);
+  var opt=Array.from(select.options||[]).find(function(o){
+    var ov=norm154(o.value), ot=norm154(o.textContent);
+    return ov===n || ot===n || (n&&ot.indexOf(n)>=0) || (ov&&n.indexOf(ov)>=0);
+  });
+  if(opt){select.value=opt.value;return true}
+  return false;
+}
+function copySelectedAsNew154(){
+  var r=routes154()[selectedRouteIndex154];
+  if(!r){setStatus154('Chưa chọn dòng route để nạp.');return}
+  var plant=el154('newHydroPlant79'), units=el154('newHydroUnits79');
+  if(plant)plant.value=routePlant154(r);
+  if(units)units.value=[r.unitName||r.plant,r.sourcePointName||r.sourcePointId,r.sourcePointId]
+    .map(text154).filter(Boolean).join(' | ');
+  if(el154('newHydroSourcePattern79'))el154('newHydroSourcePattern79').value='';
+  if(el154('newHydroFrom79'))el154('newHydroFrom79').value=text154(r.timeFrom)||'00:00';
+  if(el154('newHydroTo79'))el154('newHydroTo79').value=text154(r.timeTo)||'24:00';
+  if(el154('newHydroShare79'))el154('newHydroShare79').value=(r.sharePct==null?100:r.sharePct);
+  if(el154('newHydroSignP79'))el154('newHydroSignP79').value=String(r.signP==null?1:r.signP);
+  if(el154('newHydroSignQ79'))el154('newHydroSignQ79').value=String(r.signQ==null?1:r.signQ);
+  if(el154('hydroTemplatePlant79'))setSelectApprox154(el154('hydroTemplatePlant79'),routePlant154(r));
+
+  if(typeof window.refreshLinked79==='function')window.refreshLinked79();
+  setSelectApprox154(el154('hydroTargetTba79'),r.targetTBA);
+  if(typeof window.refreshLinked79==='function')window.refreshLinked79();
+  setSelectApprox154(el154('hydroTargetMba79'),r.targetMBAId||r.targetMBAName);
+  if(typeof window.refreshLinked79==='function')window.refreshLinked79();
+  setSelectApprox154(el154('hydroTargetFeeder79'),r.targetFeederId||r.targetFeederName);
+
+  var oldStatus=el154('newHydroStatus79');
+  if(oldStatus)oldStatus.textContent='V154: đã nạp bản sao dòng '+(selectedRouteIndex154+1)+
+    ' vào biểu mẫu. Chưa thêm route mới. Hãy đổi TBA/MBA/ngăn lộ hoặc thời gian, kiểm tra rồi tự bấm “Thêm route thủy điện”.';
+  setStatus154('Đã nạp dòng '+(selectedRouteIndex154+1)+' vào biểu mẫu route mới.\n'+
+    'Dòng route cũ chưa thay đổi; route mới chưa được thêm.');
+  var card=routeCard154();
+  if(card)card.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function draftRoutes154(){
+  if(typeof window.previewNewHydro79!=='function')return [];
+  try{
+    var p=window.previewNewHydro79();
+    return p&&Array.isArray(p.routes)?p.routes:[];
+  }catch(e){return []}
+}
+function checkDraftOverlap154(){
+  var drafts=draftRoutes154();
+  if(!drafts.length){setStatus154('Biểu mẫu phía trên chưa tạo được route dự thảo.');return}
+  var lines=[];
+  drafts.forEach(function(r,i){
+    var from=normalizeClock154(r.timeFrom||'00:00',false);
+    var to=normalizeClock154(r.timeTo||'24:00',true);
+    if(!from||!to||parseClock154(from,false)===parseClock154(to,true)){
+      lines.push('- Route '+(i+1)+': thời gian không hợp lệ hoặc khoảng rỗng.');
+      return;
+    }
+    var overlaps=overlapRows154(Object.assign({},r,{timeFrom:from,timeTo:to}),-1);
+    lines.push('- '+routeSourceLabel154(r)+' → '+routeTargetLabel154(r)+' @ '+from+'-'+to+
+      (overlaps.length?' | CẢNH BÁO chồng '+overlaps.length+' route hiện có':' | không chồng route hiện có'));
+  });
+  setStatus154('Kiểm tra route đang nhập:\n'+lines.join('\n')+
+    '\n\nĐây chỉ là kiểm tra; chưa có route nào được thêm.');
+}
+function notifyRouteChanged154(){
+  try{if(typeof window.renderRouteTableV63==='function')window.renderRouteTableV63()}catch(e){}
+  try{if(typeof window.runCatalogAudit79==='function')window.runCatalogAudit79()}catch(e){}
+  try{if(typeof window.refreshLinked79==='function')window.refreshLinked79()}catch(e){}
+  renderRoutes154();
+  try{
+    var st=el154('status');
+    if(st){
+      st.textContent+='\nV154.2: trạng thái/thời gian route đã được người dùng cập nhật. Hãy chạy lại phép tính khi cần áp dụng kết dây mới.';
+      st.scrollTop=st.scrollHeight;
+    }
+  }catch(e){}
+}
+function refreshManager154(){
+  ensureUi154();
+  fillPlants154();
+  if(selectedRouteIndex154>=routes154().length)selectedRouteIndex154=-1;
+  renderRoutes154();
+  lastRouteCount154=routes154().length;
+}
+function wrapAddRoute154(){
+  var old=window.addNewHydro79;
+  if(typeof old!=='function'||old.__hydroRouteManager154Wrapped)return;
+  var fn=function(){
+    var ret=old.apply(this,arguments);
+    setTimeout(refreshManager154,100);
+    setTimeout(refreshManager154,700);
+    return ret;
+  };
+  fn.__hydroRouteManager154Wrapped=true;
+  fn.__v153MapWrapped=old.__v153MapWrapped;
+  fn.__v153Original=old.__v153Original||old;
+  window.addNewHydro79=fn;
+}
+function arm154(){
+  ensureUi154();
+  wrapAddRoute154();
+  refreshManager154();
+}
+var oldShow154=window.showTab;
+if(typeof oldShow154==='function'&&!oldShow154.__hydroRouteManager154Wrapped){
+  var show154=function(name){
+    var ret=oldShow154.apply(this,arguments);
+    if(name==='catalog79')setTimeout(arm154,100);
+    return ret;
+  };
+  show154.__hydroRouteManager154Wrapped=true;
+  window.showTab=show154;
+}
+setInterval(function(){
+  var tab=el154('tab-catalog79');
+  if(!tab||tab.classList.contains('hidden'))return;
+  if(routes154().length!==lastRouteCount154){
+    lastRouteCount154=routes154().length;
+    refreshManager154();
+  }
+},1800);
+
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded',function(){
+    setTimeout(arm154,900);
+    setTimeout(arm154,2200);
+    setTimeout(wrapAddRoute154,4200);
+  },{once:true});
+}else{
+  setTimeout(arm154,900);
+  setTimeout(arm154,2200);
+  setTimeout(wrapAddRoute154,4200);
+}
+})();
+</script>
+<!-- SCADA_EXISTING_HYDRO_ROUTE_MANAGER_V154_END -->
+
 </body>
 </html>
