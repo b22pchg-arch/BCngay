@@ -1,15 +1,20 @@
 {
-  "version": "V150-PWA-1.0.1",
-  "appVersion": "2.4.7-PWA-MapBridge",
-  "htmlVersion": "V150",
-  "createdAt": "2026-07-19T15:30:00+07:00",
-  "sourceFile": "SCADA_Report_V150_CombinedWorkbookUpload_Standalone.html",
-  "sourceSha256": "98adc5d33efcc433353e3f1aa7047f8f522d60101158293718191ce144180c72",
-  "cacheName": "scada-report-v150-pwa-1.0.1",
+  "version": "V152-PWA-1.2.0",
+  "appVersion": "2.4.8-PWA-ZipInput-MapBridge",
+  "htmlVersion": "V151",
+  "createdAt": "2026-07-20T00:30:00+07:00",
+  "sourceFile": "SCADA_Report_V151_ZipInput_Standalone.html",
+  "sourceSha256": "e6fa44f95d2daa88c65d4c1e3a70fafeaa9571f3671a14974d03faf52953cabd",
+  "cacheName": "scada-report-v152-pwa-1.2.0",
   "features": [
-    "auto-import-reportTemplateMaps-from-multi-file-loader",
+    "direct-in-browser-zip-reading",
+    "embedded-jszip-3.10.1",
+    "nested-zip-up-to-3-levels",
+    "zip-bomb-limits",
+    "mixed-loose-files-and-zips",
+    "auto-import-reportTemplateMaps-from-expanded-zip",
     "reapply-after-template-load",
-    "pinned-map-status",
-    "force-cache-refresh-page"
+    "safe-document-boundary-injection",
+    "offline-service-worker"
   ]
 }

@@ -1,11 +1,11 @@
 {
   "id": "./index.html",
-  "name": "SCADA Report Studio V150 PWA Map Bridge",
+  "name": "SCADA Report Studio V151 PWA ZIP Input 1.1.0",
   "short_name": "SCADA Report",
-  "description": "Phan tich, tinh toan, tao bao cao Excel, ZIP va tu khoi phuc map bao cao tu goi cau hinh.",
+  "description": "Phân tích SCADA, công tơ và thủy điện; đọc trực tiếp file ZIP ngoại tuyến; tạo báo cáo Excel và ZIP.",
   "lang": "vi",
   "dir": "ltr",
-  "start_url": "./index.html?v=1.0.1",
+  "start_url": "./index.html?v=1.2.0",
   "scope": "./",
   "display": "standalone",
   "display_override": [
@@ -45,7 +45,7 @@
     {
       "name": "Mo SCADA Report Studio",
       "short_name": "Mo ung dung",
-      "url": "./index.html?v=1.0.1",
+      "url": "./index.html?v=1.2.0",
       "icons": [
         {
           "src": "./icons/icon-192.png",

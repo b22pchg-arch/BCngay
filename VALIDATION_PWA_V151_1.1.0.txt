@@ -1,0 +1,15 @@
+VALIDATION V151 ZIP INPUT / PWA 1.1.0
+
+Standalone HTML: 22 inline JavaScript blocks; syntax errors=0
+PWA index: 22 inline JavaScript blocks; syntax errors=0
+pwa-bootstrap.js: node --check = PASS
+sw.js: node --check = PASS
+Embedded JSZip 3.10.1 matches local source: PASS
+PWA business HTML equals standalone V151: PASS
+manifest/version JSON and project XML: PASS
+PWA core assets present: PASS
+Node functional ZIP extraction test: PASS
+ZIP mixed/nested files routed correctly: PASS
+ZIP test manifest rows=8; expanded bytes=477
+dotnet SDK available in packaging environment: NO (Windows build required)
+Standalone SHA-256: e6fa44f95d2daa88c65d4c1e3a70fafeaa9571f3671a14974d03faf52953cabd

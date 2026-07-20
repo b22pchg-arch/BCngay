@@ -1,11 +1,11 @@
 /* SCADA Report Studio PWA service worker */
-const APP_VERSION = 'V150-PWA-1.0.1';
-const CACHE_NAME = 'scada-report-v150-pwa-1.0.1';
+const APP_VERSION = 'V152-PWA-1.2.0';
+const CACHE_NAME = 'scada-report-v152-pwa-1.2.0';
 const CORE_ASSETS = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './pwa-bootstrap.js?v=1.0.1',
+  './pwa-bootstrap.js?v=1.2.0',
   './version.json',
   './CAP_NHAT_PWA.html',
   './icons/icon-192.png',

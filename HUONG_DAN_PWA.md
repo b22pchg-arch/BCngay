@@ -1,50 +1,47 @@
-# Bản hiện tại: V150-PWA-1.0.1 Map Bridge
+# SCADA Report V152 PWA 1.1.0 — đọc trực tiếp ZIP
 
-Xem `HUONG_DAN_PWA_MAP_BRIDGE.md` để cập nhật GitHub Pages và khôi phục map.
+## Cài đặt
 
-# SCADA Report Studio V150 PWA
+1. Giải nén toàn bộ gói.
+2. Chạy `CHAY_PWA.cmd` hoặc đưa toàn bộ file lên GitHub Pages.
+3. Mở `index.html` qua `http://`, `https://` hoặc localhost.
+4. Cài ứng dụng từ nút **Cài ứng dụng** của trình duyệt/PWA.
 
-Phiên bản: **V150-PWA-1.0.0**  
-HTML nghiệp vụ: **V150**  
-Nguồn HTML SHA-256: `98adc5d33efcc433353e3f1aa7047f8f522d60101158293718191ce144180c72`
+## Nạp ZIP
 
-## Chạy và cài đặt trên Windows
+Tại **Nạp tổng hợp nhiều file**, có thể chọn đồng thời file rời và một hoặc nhiều `.zip` rồi bấm **Nạp cộng dồn**.
 
-1. Giải nén toàn bộ thư mục, không lấy riêng `index.html`.
-2. Chạy `CHAY_PWA.cmd`.
-3. Edge/Chrome mở `http://127.0.0.1:8765/index.html`.
-4. Bấm **Cài ứng dụng** trong bảng `SCADA PWA`, hoặc dùng biểu tượng cài đặt trên thanh địa chỉ.
-5. Sau lần mở đầu tiên, ứng dụng có thể hoạt động ngoại tuyến.
+PWA giải nén hoàn toàn trong bộ nhớ trình duyệt và tự chuyển các file bên trong cho lõi phân loại hiện có:
 
-PWA không thể đăng ký service worker khi mở trực tiếp bằng `file://`. HTML vẫn chạy theo kiểu tệp độc lập, nhưng sẽ không có cài đặt, cache ngoại tuyến và cập nhật.
+- Gói cấu hình JSON/XLSX và map báo cáo.
+- SCADA thô TBA 110 kV.
+- SCADA thủy điện/TDB22.
+- Dữ liệu công tơ DULIEU thông thường.
+- DataMart.
+- Map SCADA, Topo SCADA và Route thủy điện.
+- File mẫu báo cáo khi chọn ZIP tại vùng **Xuất báo cáo mẫu**.
 
-## Chuyển dữ liệu từ HTML mở trực tiếp
+Bảng **V151 · Đọc trực tiếp ZIP** hiển thị tên ZIP, file con, loại nhận diện, dung lượng và trạng thái xử lý.
 
-Dữ liệu trình duyệt của `file://` và `http://127.0.0.1:8765` thuộc hai vùng lưu trữ khác nhau. Trước khi chuyển sang PWA:
+## ZIP hỗn hợp và ZIP lồng
 
-1. Mở HTML cũ đang dùng.
-2. Xuất **Gói cấu hình dùng lại**, cấu hình map mẫu và DataMart cần lưu.
-3. Chạy PWA rồi nạp lại các gói đó.
+- Có thể trộn nhiều ZIP và file rời trong một lần chọn.
+- Hỗ trợ ZIP lồng tối đa 3 cấp.
+- Bỏ qua thư mục, `.DS_Store`, `__MACOSX`, file tạm `~$...` và định dạng không hỗ trợ.
+- ZIP có mật khẩu chưa được hỗ trợ.
 
-Không xóa HTML cũ cho đến khi kiểm tra xong cấu hình trong PWA.
+## Giới hạn an toàn
 
-## Cập nhật
+- Tối đa 1.000 file.
+- Tối đa 256 MB cho một file sau giải nén.
+- Tối đa 768 MB tổng dữ liệu sau giải nén.
 
-1. Đóng ứng dụng PWA và cửa sổ server cũ.
-2. Thay toàn bộ các tệp bằng gói PWA mới, giữ nguyên cấu trúc thư mục.
-3. Chạy lại `CHAY_PWA.cmd`.
-4. Bấm **Kiểm tra cập nhật** trong bảng `SCADA PWA`.
+Các giới hạn này ngăn ZIP bomb làm treo trình duyệt.
 
-Dữ liệu do người dùng nạp nằm trong bộ nhớ trình duyệt/IndexedDB/localStorage tùy chức năng của HTML. Nên tiếp tục xuất gói cấu hình và DataMart định kỳ để sao lưu.
+## Cập nhật GitHub Pages
 
-## Thành phần
+Chép đè toàn bộ gói, sau đó mở `CAP_NHAT_PWA.html` để gỡ service worker và cache cũ. Phiên bản đúng hiển thị `V152-PWA-1.2.0`.
 
-- `index.html`: HTML V150, chỉ bổ sung khai báo PWA và bootstrap.
-- `manifest.webmanifest`: thông tin cài đặt ứng dụng.
-- `sw.js`: cache ngoại tuyến và cập nhật.
-- `pwa-bootstrap.js`: nút cài đặt, trạng thái mạng và kiểm tra cập nhật.
-- `version.json`: nhận diện phiên bản.
-- `icons/`: biểu tượng PWA.
-- `CHAY_PWA.cmd`: chạy localhost không cần IIS.
-- `LOCAL_PWA_SERVER.ps1`: máy chủ tĩnh cục bộ.
-- `DUNG_PWA.cmd`: dừng máy chủ ở cổng 8765.
+## Lưu ý dữ liệu
+
+PWA không gửi nội dung ZIP lên máy chủ. Việc giải nén, đọc Excel/CSV/JSON và tính toán diễn ra trên thiết bị người dùng.

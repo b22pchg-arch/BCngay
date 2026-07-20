@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const CURRENT_VERSION = 'V150-PWA-1.0.1';
+  const CURRENT_VERSION = 'V152-PWA-1.2.0';
   const MAP_PACKAGE_KEY = 'TBA110_TEMPLATE_REPORT_PACKAGE_V136';
   const MAP_REGISTRY_KEY = 'TBA110_TEMPLATE_REPORT_REGISTRY_V142';
   let deferredInstallPrompt = null;
@@ -66,7 +66,7 @@
           <a class="pwa-button secondary" href="./CAP_NHAT_PWA.html">Làm mới cache PWA</a>
         </div>
         <div id="scadaPwaStatus">Đang khởi tạo PWA...</div>
-        <div id="scadaPwaMapStatus">Map báo cáo: chưa quét gói cấu hình.</div>
+        <div id="scadaPwaMapStatus">Map báo cáo: chưa quét gói cấu hình. ZIP V151: sẵn sàng đọc trực tiếp.</div>
       </div>`;
     document.body.appendChild(panel);
 
@@ -164,7 +164,7 @@
       }
     });
     return groups.size ? {
-      packageType: 'TBA110K_TEMPLATE_REPORT_CONFIG', configVersion: 'V150-PWA-1.0.1',
+      packageType: 'TBA110K_TEMPLATE_REPORT_CONFIG', configVersion: 'V152-PWA-1.2.0',
       createdAt: new Date().toISOString(), templateCount: groups.size, templates: [...groups.values()]
     } : null;
   }
@@ -388,7 +388,7 @@
       return;
     }
     try {
-      registration = await navigator.serviceWorker.register('./sw.js?v=1.0.1', {scope: './', updateViaCache: 'none'});
+      registration = await navigator.serviceWorker.register('./sw.js?v=1.2.0', {scope: './', updateViaCache: 'none'});
       await navigator.serviceWorker.ready;
       const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
       setStatus(standalone ? 'Đang chạy dưới dạng ứng dụng · ' + CURRENT_VERSION : 'Đã sẵn sàng ngoại tuyến · ' + CURRENT_VERSION, 'ok');
