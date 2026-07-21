@@ -7511,6 +7511,33 @@ function routeTargetLabel154(r){
   return [routeTargetTba154(r),routeTargetMba154(r),routeTargetFeeder154(r)]
     .map(text154).filter(Boolean).join(' → ');
 }
+function routePlantUnitLabel154(r){
+  return [routePlant154(r),r&&r.unitName].map(text154).filter(Boolean).join(' / ');
+}
+function normalizedShare154(r){
+  var n=Number(r&&r.sharePct==null?100:r.sharePct);
+  return Number.isFinite(n)?String(Math.round(n*1000000)/1000000):norm154(r&&r.sharePct);
+}
+function exactRouteKey154(r){
+  return [
+    isUsed154(r)?'1':'0',
+    norm154(routePlantUnitLabel154(r)),
+    norm154(routeSourceLabel154(r)),
+    norm154(routeTargetTba154(r)),
+    norm154(routeTargetMba154(r)),
+    norm154(routeTargetFeeder154(r)),
+    normalizeClock154(r&&r.timeFrom||'00:00',false)||text154(r&&r.timeFrom),
+    normalizeClock154(r&&r.timeTo||'24:00',true)||text154(r&&r.timeTo),
+    normalizedShare154(r)
+  ].join('|');
+}
+function exactDuplicateRows154(candidate,ignoreIndex){
+  var key=exactRouteKey154(candidate),out=[];
+  routes154().forEach(function(r,i){
+    if(i!==ignoreIndex&&exactRouteKey154(r)===key)out.push({index:i,route:r});
+  });
+  return out;
+}
 function sourceAliases154(r){
   var values=[
     r.ruleId,
@@ -7619,11 +7646,12 @@ function ensureUi154(){
   box.id='hydroRouteManager154';
   box.className='hydroRouteMgr154';
   box.innerHTML=
-    '<h4>V154.2 · Đọc route nhà máy hiện có, bật/tắt và hiệu chỉnh kết dây theo giờ</h4>'+
+    '<h4>V154.3 · Đọc route, kiểm tra trùng cấu hình, bật/tắt và hiệu chỉnh kết dây</h4>'+
     '<div class="hydroRouteHint154"><b>Không tự sửa cấu hình.</b> Chọn nhà máy để đọc các route đã có. '+
     'Nút “Nạp làm route mới” chỉ sao chép dòng vào biểu mẫu phía trên. '+
     'Nút “Cập nhật thời gian” chỉ sửa <code>timeFrom/timeTo</code> của dòng được chọn sau xác nhận. '+
-    'Nếu các khoảng giờ cùng nguồn chồng nhau, hệ thống cảnh báo vì dữ liệu có thể được tính đồng thời vào nhiều nhánh.</div>'+
+    'Cột “Kiểm tra trùng route” chỉ báo chồng khi 9 trường Dùng, Nhà máy/tổ máy, Điểm nguồn, TBA, MBA, Ngăn lộ, Từ giờ, Đến giờ và Tỷ lệ đều giống route khác. '+
+    'Phần xem trước khi sửa vẫn cảnh báo giao nhau theo thời gian để người dùng chủ động kiểm tra kết dây.</div>'+
     '<div class="hydroRouteGrid154">'+
       '<div><label>Nhà máy đã có route</label><select id="existingHydroPlant154"></select></div>'+
       '<div><label>Lọc tổ máy/điểm nguồn/đích</label><input id="existingHydroFilter154" placeholder="Nhập từ khóa"></div>'+
@@ -7705,7 +7733,9 @@ function filteredRouteRows154(){
   });
 }
 function rowOverlapCount154(r,idx){
-  return overlapRows154(r,idx).length;
+  // Cột đánh giá chỉ báo chồng khi TOÀN BỘ các giá trị hiển thị giống nhau:
+  // Dùng, Nhà máy/tổ máy, Điểm nguồn, TBA, MBA, Ngăn lộ, Từ giờ, Đến giờ, Tỷ lệ.
+  return exactDuplicateRows154(r,idx).length;
 }
 function renderRoutes154(){
   var box=ensureUi154();
@@ -7723,7 +7753,7 @@ function renderRoutes154(){
   target.innerHTML='<table><thead><tr>'+
     '<th>Thao tác</th><th>Dùng</th><th>Nhà máy / tổ máy</th><th>Điểm nguồn</th>'+
     '<th>TBA nhận phát</th><th>MBA nhận phát</th><th>Ngăn lộ nhận phát</th>'+
-    '<th>Từ giờ</th><th>Đến giờ</th><th>Tỷ lệ</th><th>Kiểm tra thời gian</th>'+
+    '<th>Từ giờ</th><th>Đến giờ</th><th>Tỷ lệ</th><th>Kiểm tra trùng route</th>'+
     '</tr></thead><tbody>'+
     rows.map(function(x){
       var r=x.route, overlaps=rowOverlapCount154(r,x.index);
